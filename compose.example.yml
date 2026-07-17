@@ -1,0 +1,24 @@
+services:
+  actual-truelayer-manager:
+    build: .
+    image: ghcr.io/YOUR_ORG/actual-truelayer-manager:latest
+    container_name: actual-truelayer-manager
+    restart: unless-stopped
+    ports:
+      # Host port bound to localhost only; container binds 0.0.0.0 internally.
+      - "127.0.0.1:3020:3020"
+    environment:
+      APP_BIND_HOST: "0.0.0.0"
+      APP_PORT: "3020"
+      APP_BASE_URL: "http://localhost:3020"
+      ACTUAL_SERVER_URL: "http://actual-budget:5006"
+      SYNC_INTERVAL_HOURS: "6"
+      SYNC_OVERLAP_DAYS: "3"
+      LOG_LEVEL: "info"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3020/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
