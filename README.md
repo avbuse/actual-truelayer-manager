@@ -17,9 +17,13 @@ The full product specification lives in
 - Setup wizard, dashboard, connections, mappings, and redacted logs pages
 - SQLite persistence (`better-sqlite3`) with migrations and repositories
 - AES-256-GCM encryption for tokens/secrets + a redaction utility
-- `BankingProvider` abstraction: live TrueLayer provider + a built-in demo provider
-- Actual Budget client: lazy `@actual-app/api` integration + a built-in demo client
-- Sync engine (dry-run / live) with duplicate detection and an interval scheduler
+- `BankingProvider` abstraction: live TrueLayer provider (production + sandbox) and a
+  built-in demo provider; credentials from env **or** the setup wizard
+- Actual Budget client: `@actual-app/api` (lazy-loaded, optional dependency) with a
+  server/API version-compatibility check, plus a built-in demo client
+- Sync engine (dry-run / live) with duplicate detection, automatic token refresh,
+  `reauth_required` handling, balance-drift warnings, and an interval scheduler
+- Optional built-in HTTP Basic Auth and consent-expiry warnings on the dashboard
 - Legacy config detection for the two upstream projects
 
 ### Demo mode
@@ -27,11 +31,12 @@ The full product specification lives in
 When no live credentials are configured (`TRUELAYER_CLIENT_ID` + `ACTUAL_SERVER_URL`),
 the app runs in **demo mode** with a simulated bank and an in-memory Actual budget, so
 you can complete the entire connect → map → dry-run → sync flow without any external
-services. Set `DEMO_MODE=1` to force it, or provide live credentials to disable it.
+services. Set `DEMO_MODE=1` to force demo, `DEMO_MODE=0` to force live, or leave it
+unset to auto-detect from the configured credentials.
 
 ## Development
 
-Requires Node.js 20+.
+Requires Node.js 22+ (see `engines` in [`package.json`](./package.json)).
 
 ```bash
 npm install        # install dependencies
@@ -50,7 +55,10 @@ running locally, e.g.:
 APP_DATA_DIR=./data npm run dev
 ```
 
-See [`.env.example`](./.env.example) for all configuration variables.
+See [`.env.example`](./.env.example) for all configuration variables. Every sensitive
+variable also supports a `<NAME>_FILE` variant that reads the value from a file (for
+Docker/Podman secrets), e.g. `APP_ENCRYPTION_KEY_FILE`, `ACTUAL_PASSWORD_FILE`,
+`TRUELAYER_CLIENT_SECRET_FILE`. Setting both a variable and its `_FILE` form is an error.
 
 ## Docker
 
