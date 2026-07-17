@@ -1,3 +1,5 @@
+** An experiment in AI Coding
+
 # actual-truelayer-manager
 # Project Spec: Actual TrueLayer Manager  
 ## 1. Project Summary  Build a single, Docker-first application that combines the useful parts of: 
