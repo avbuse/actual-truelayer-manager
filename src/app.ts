@@ -17,7 +17,23 @@ export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logLevel ? { level: options.logLevel } : false,
+    logger: options.logLevel
+      ? {
+          level: options.logLevel,
+          // Defence in depth: never emit secrets even if something logs them.
+          redact: {
+            censor: "***",
+            paths: [
+              "req.headers.authorization",
+              "*.access_token",
+              "*.refresh_token",
+              "*.client_secret",
+              "*.password",
+              "*.encryption_password",
+            ],
+          },
+        }
+      : false,
   });
 
   await app.register(formbody);
