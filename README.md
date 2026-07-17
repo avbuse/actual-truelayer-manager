@@ -73,6 +73,44 @@ The manager reaches Actual over the compose network at `http://actual-server:500
 Provide `TRUELAYER_*` and `ACTUAL_*` credentials in the compose file to switch from
 demo mode to live sync.
 
+## Going live
+
+Demo mode is great for clicking through the flow, but a real TrueLayer → Actual sync
+needs a few things in place. See [`.env.example`](./.env.example) for every variable.
+
+1. **Set a durable encryption key.** Live mode refuses to start (and refuses to
+   connect a real bank) without `APP_ENCRYPTION_KEY` (or `APP_ENCRYPTION_KEY_FILE`).
+   Generate one with `openssl rand -base64 32`. This key encrypts banking tokens at
+   rest — back it up separately from the database.
+
+2. **Choose demo vs. live.** The app auto-detects live mode once TrueLayer + Actual
+   credentials are present. You can force it either way with `DEMO_MODE=0` (live) or
+   `DEMO_MODE=1` (demo). TrueLayer credentials can come from the environment
+   (`TRUELAYER_CLIENT_ID` / `TRUELAYER_CLIENT_SECRET`) **or** from the setup wizard —
+   both now drive the live provider.
+
+3. **Start against the TrueLayer sandbox.** Set `TRUELAYER_USE_SANDBOX=true` for the
+   first end-to-end test; the provider then talks to `auth.truelayer-sandbox.com` /
+   `api.truelayer-sandbox.com`. Override the endpoints directly with
+   `TRUELAYER_AUTH_BASE_URL` / `TRUELAYER_API_BASE_URL` if needed.
+
+4. **Install a matching `@actual-app/api`.** It ships as an optional dependency and is
+   loaded lazily. Its major.minor line should match your Actual server version; the
+   Actual connection test warns when they differ. Pin it in `package.json` /
+   rebuild the image if you upgrade the server.
+
+5. **Protect the UI.** The server binds to `127.0.0.1` by default. If you expose it,
+   set `APP_BASIC_AUTH_USER` + `APP_BASIC_AUTH_PASSWORD` (built-in Basic Auth; the
+   `/health` endpoint stays open for container health checks) and/or put it behind an
+   authenticating reverse proxy.
+
+Tokens are refreshed automatically before each sync. If a bank's consent expires or a
+refresh fails, the connection is flagged `reauth_required` and the dashboard shows a
+warning — use **Reconnect bank** on the Connections page to re-authorise.
+
+> **Protect `sync.db` and `APP_ENCRYPTION_KEY`.** Together they can expose banking
+> access tokens and transaction data. A database backup is only as safe as the key.
+
 ## Container images / CI
 
 On every push to `main` (and on tags) the [`Build Docker image`](./.github/workflows/docker-build.yml)

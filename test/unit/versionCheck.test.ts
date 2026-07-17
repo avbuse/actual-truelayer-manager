@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { compareActualVersions } from "../../src/actual/versionCheck.js";
+import {
+  compareActualVersions,
+  getBundledApiVersion,
+} from "../../src/actual/versionCheck.js";
+
+describe("getBundledApiVersion", () => {
+  it("returns a semver string when installed, or undefined otherwise", () => {
+    const version = getBundledApiVersion();
+    if (version !== undefined) {
+      expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    }
+  });
+});
 
 describe("compareActualVersions", () => {
   it("flags a missing api package as incompatible", () => {

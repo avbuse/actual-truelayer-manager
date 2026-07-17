@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 
@@ -9,11 +11,29 @@ export interface VersionCompatibility {
   apiVersion?: string;
 }
 
-/** Version of the bundled `@actual-app/api`, or undefined when not installed. */
+/**
+ * Version of the bundled `@actual-app/api`, or undefined when not installed.
+ *
+ * The package's `exports` map blocks reading `package.json` directly, so we
+ * resolve the entry point and walk up to the owning package manifest instead.
+ */
 export function getBundledApiVersion(): string | undefined {
   try {
-    const pkg = require("@actual-app/api/package.json") as { version?: string };
-    return pkg.version;
+    let dir = dirname(require.resolve("@actual-app/api"));
+    for (let i = 0; i < 8; i++) {
+      try {
+        const pkg = JSON.parse(
+          readFileSync(join(dir, "package.json"), "utf8"),
+        ) as { name?: string; version?: string };
+        if (pkg.name === "@actual-app/api") return pkg.version;
+      } catch {
+        // keep walking up
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
