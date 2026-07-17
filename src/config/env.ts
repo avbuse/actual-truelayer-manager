@@ -41,6 +41,11 @@ function parseIntWithDefault(
   return parsed;
 }
 
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
 export interface AppConfig {
   bindHost: string;
   port: number;
@@ -48,7 +53,28 @@ export interface AppConfig {
   logLevel: string;
   syncIntervalHours: number;
   syncOverlapDays: number;
+  syncDaysLookback: number;
+  balanceDriftWarningMinor: number;
   dataDir: string;
+  dbPath: string;
+  /**
+   * When true, the app uses built-in simulated TrueLayer + Actual backends so
+   * the full flow can be exercised without live credentials. Defaults to true
+   * unless live credentials are provided (or DEMO_MODE is explicitly set).
+   */
+  demoMode: boolean;
+  actual: {
+    serverUrl?: string;
+    password?: string;
+    encryptionPassword?: string;
+    syncId?: string;
+  };
+  truelayer: {
+    clientId?: string;
+    clientSecret?: string;
+    redirectMode: "manual" | "direct";
+    callbackUrl?: string;
+  };
 }
 
 /**
@@ -57,6 +83,26 @@ export interface AppConfig {
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = parseIntWithDefault(readEnvOrFile("APP_PORT", env), 3020);
+  const dataDir = readEnvOrFile("APP_DATA_DIR", env) ?? "/app/data";
+
+  const actual = {
+    serverUrl: readEnvOrFile("ACTUAL_SERVER_URL", env),
+    password: readEnvOrFile("ACTUAL_PASSWORD", env),
+    encryptionPassword: readEnvOrFile("ACTUAL_ENCRYPTION_PASSWORD", env),
+    syncId: readEnvOrFile("ACTUAL_SYNC_ID", env),
+  };
+  const truelayer = {
+    clientId: readEnvOrFile("TRUELAYER_CLIENT_ID", env),
+    clientSecret: readEnvOrFile("TRUELAYER_CLIENT_SECRET", env),
+    redirectMode:
+      readEnvOrFile("TRUELAYER_REDIRECT_MODE", env) === "direct"
+        ? ("direct" as const)
+        : ("manual" as const),
+    callbackUrl: readEnvOrFile("TRUELAYER_CALLBACK_URL", env),
+  };
+
+  const hasLiveCreds = Boolean(truelayer.clientId && actual.serverUrl);
+  const demoMode = parseBool(readEnvOrFile("DEMO_MODE", env), !hasLiveCreds);
 
   return {
     bindHost: readEnvOrFile("APP_BIND_HOST", env) ?? "127.0.0.1",
@@ -71,6 +117,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       readEnvOrFile("SYNC_OVERLAP_DAYS", env),
       3,
     ),
-    dataDir: readEnvOrFile("APP_DATA_DIR", env) ?? "/app/data",
+    syncDaysLookback: parseIntWithDefault(
+      readEnvOrFile("SYNC_DAYS_LOOKBACK", env),
+      7,
+    ),
+    balanceDriftWarningMinor: parseIntWithDefault(
+      readEnvOrFile("BALANCE_DRIFT_WARNING_MINOR", env),
+      100,
+    ),
+    dataDir,
+    dbPath: readEnvOrFile("APP_DB_PATH", env) ?? `${dataDir}/sync.db`,
+    demoMode,
+    actual,
+    truelayer,
   };
 }

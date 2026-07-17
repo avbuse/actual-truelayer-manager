@@ -11,17 +11,23 @@ The full product specification lives in
 
 ## Status
 
-**Phase 0 scaffold.** The runnable foundation is in place:
+**Working prototype** covering spec phases 0–8:
 
-- Fastify HTTP server (TypeScript, strict mode)
-- `GET /health` liveness endpoint
-- `GET /status` machine-readable status document
-- `GET /setup` server-rendered setup wizard landing page
-- Environment/config loader with `_FILE` secret support
-- Vitest test suite, ESLint, and Docker packaging
+- Fastify HTTP server (TypeScript, strict mode) with server-rendered UI
+- Setup wizard, dashboard, connections, mappings, and redacted logs pages
+- SQLite persistence (`better-sqlite3`) with migrations and repositories
+- AES-256-GCM encryption for tokens/secrets + a redaction utility
+- `BankingProvider` abstraction: live TrueLayer provider + a built-in demo provider
+- Actual Budget client: lazy `@actual-app/api` integration + a built-in demo client
+- Sync engine (dry-run / live) with duplicate detection and an interval scheduler
+- Legacy config detection for the two upstream projects
 
-Later phases (SQLite, encryption, Actual Budget client, TrueLayer provider, sync
-engine, and the full setup wizard) are described in the spec.
+### Demo mode
+
+When no live credentials are configured (`TRUELAYER_CLIENT_ID` + `ACTUAL_SERVER_URL`),
+the app runs in **demo mode** with a simulated bank and an in-memory Actual budget, so
+you can complete the entire connect → map → dry-run → sync flow without any external
+services. Set `DEMO_MODE=1` to force it, or provide live credentials to disable it.
 
 ## Development
 
@@ -37,8 +43,14 @@ npm run build      # compile to dist/
 ```
 
 By default the server binds to `127.0.0.1:3020`. Set `APP_BIND_HOST=0.0.0.0` to
-expose it on all interfaces. See [`.env.example`](./.env.example) for all
-configuration variables.
+expose it on all interfaces. The data dir defaults to `/app/data`; override it when
+running locally, e.g.:
+
+```bash
+APP_DATA_DIR=./data npm run dev
+```
+
+See [`.env.example`](./.env.example) for all configuration variables.
 
 ## Docker
 
