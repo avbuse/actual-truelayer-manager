@@ -54,7 +54,28 @@ See [`.env.example`](./.env.example) for all configuration variables.
 
 ## Docker
 
+Run just the manager:
+
 ```bash
 docker compose -f compose.example.yml up -d
 # then open http://localhost:3020/setup
 ```
+
+Run the manager **and** a self-hosted Actual Budget server in one stack:
+
+```bash
+docker compose -f compose.actual-budget.yml up -d
+# Actual Budget UI:  http://localhost:5006
+# Manager UI:        http://localhost:3020/setup
+```
+
+The manager reaches Actual over the compose network at `http://actual-server:5006`.
+Provide `TRUELAYER_*` and `ACTUAL_*` credentials in the compose file to switch from
+demo mode to live sync.
+
+## Container images / CI
+
+On every push to `main` (and on tags) the [`Build Docker image`](./.github/workflows/docker-build.yml)
+GitHub Actions workflow builds and publishes the image to the GitHub Container Registry
+at `ghcr.io/<owner>/actual-truelayer-manager`. Pull requests build the image without
+pushing, as a check.
