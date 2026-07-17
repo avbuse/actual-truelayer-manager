@@ -27,6 +27,13 @@ interface TokenResponse {
 }
 
 /**
+ * TrueLayer's default Open Banking consent lasts 90 days. TrueLayer does not
+ * return an explicit expiry in the token response, so we record this estimate
+ * at connection time to drive the dashboard consent-expiry warning (spec §15.4).
+ */
+const CONSENT_WINDOW_DAYS = 90;
+
+/**
  * Live TrueLayer provider (spec §15). Uses the global fetch API (Node 20+),
  * so it adds no HTTP dependency. Network calls are only made when live
  * credentials are configured; the demo provider is used otherwise.
@@ -37,12 +44,23 @@ export class TrueLayerProvider implements BankingProvider {
   private readonly apiBase: string;
 
   constructor(private readonly config: TrueLayerConfig) {
-    this.authBase = config.authBaseUrl ?? "https://auth.truelayer.com";
-    this.apiBase = config.apiBaseUrl ?? "https://api.truelayer.com";
+    const sandbox = config.useSandbox ?? false;
+    this.authBase =
+      config.authBaseUrl ??
+      (sandbox
+        ? "https://auth.truelayer-sandbox.com"
+        : "https://auth.truelayer.com");
+    this.apiBase =
+      config.apiBaseUrl ??
+      (sandbox
+        ? "https://api.truelayer-sandbox.com"
+        : "https://api.truelayer.com");
   }
 
   async createAuthUrl(input: CreateAuthUrlInput): Promise<string> {
-    const providers = this.config.useSandbox ? "uk-cs-mock" : "uk-ob-all uk-oauth-all";
+    const providers = this.config.useSandbox
+      ? "uk-cs-mock"
+      : "uk-ob-all uk-oauth-all";
     const params = new URLSearchParams({
       response_type: "code",
       client_id: this.config.clientId,
@@ -74,31 +92,42 @@ export class TrueLayerProvider implements BankingProvider {
   }
 
   async listAccounts(input: ListAccountsInput): Promise<BankAccount[]> {
+    const token = input.tokens.accessToken;
     const [accounts, cards] = await Promise.all([
-      this.getData("/data/v1/accounts", input.tokens.accessToken),
-      this.getData("/data/v1/cards", input.tokens.accessToken),
+      this.getData("/data/v1/accounts", token),
+      this.getData("/data/v1/cards", token),
     ]);
 
     const mapped: BankAccount[] = [];
     for (const a of accounts) {
       const acc = a as Record<string, unknown>;
+      const id = String(acc.account_id);
       mapped.push({
-        providerAccountId: String(acc.account_id),
+        providerAccountId: id,
         displayName: String(acc.display_name ?? "Account"),
         accountType:
           String(acc.account_type ?? "").toUpperCase() === "SAVINGS"
             ? "savings"
             : "transaction",
         currency: String(acc.currency ?? "GBP"),
+        balanceMinor: await this.getBalanceMinor(
+          `/data/v1/accounts/${id}/balance`,
+          token,
+        ),
       });
     }
     for (const c of cards) {
       const card = c as Record<string, unknown>;
+      const id = String(card.account_id);
       mapped.push({
-        providerAccountId: String(card.account_id),
+        providerAccountId: id,
         displayName: String(card.display_name ?? "Credit Card"),
         accountType: "credit_card",
         currency: String(card.currency ?? "GBP"),
+        balanceMinor: await this.getBalanceMinor(
+          `/data/v1/cards/${id}/balance`,
+          token,
+        ),
       });
     }
     return mapped;
@@ -108,9 +137,19 @@ export class TrueLayerProvider implements BankingProvider {
     input: ListTransactionsInput,
   ): Promise<BankTransaction[]> {
     const params = new URLSearchParams({ from: input.from, to: input.to });
-    // Cards and accounts share the same transactions path shape in the Data API.
-    const path = `/data/v1/accounts/${input.providerAccountId}/transactions?${params.toString()}`;
-    const results = await this.getData(path, input.tokens.accessToken);
+    const query = params.toString();
+    // Accounts and cards use different transaction paths; try the account path
+    // first and fall back to the card path when the id is not a bank account.
+    let results = await this.getData(
+      `/data/v1/accounts/${input.providerAccountId}/transactions?${query}`,
+      input.tokens.accessToken,
+    );
+    if (results.length === 0) {
+      results = await this.getData(
+        `/data/v1/cards/${input.providerAccountId}/transactions?${query}`,
+        input.tokens.accessToken,
+      );
+    }
 
     return results.map((t) => {
       const tx = t as Record<string, unknown>;
@@ -127,6 +166,12 @@ export class TrueLayerProvider implements BankingProvider {
         raw: tx,
       };
     });
+  }
+
+  async getConsentExpiry(): Promise<string | undefined> {
+    return new Date(
+      Date.now() + CONSENT_WINDOW_DAYS * 86_400_000,
+    ).toISOString();
   }
 
   private async requestToken(
@@ -162,6 +207,11 @@ export class TrueLayerProvider implements BankingProvider {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     if (response.status === 404) return [];
+    if (response.status === 401 || response.status === 403) {
+      throw new AuthorizationError(
+        `TrueLayer request to ${path} was unauthorized (status ${response.status}).`,
+      );
+    }
     if (!response.ok) {
       throw new Error(
         `TrueLayer data request to ${path} failed with status ${response.status}`,
@@ -169,5 +219,33 @@ export class TrueLayerProvider implements BankingProvider {
     }
     const payload = (await response.json()) as { results?: unknown[] };
     return payload.results ?? [];
+  }
+
+  /** Best-effort account balance in minor units; undefined when unavailable. */
+  private async getBalanceMinor(
+    path: string,
+    accessToken: string,
+  ): Promise<number | undefined> {
+    try {
+      const results = await this.getData(path, accessToken);
+      const first = results[0] as Record<string, unknown> | undefined;
+      if (!first) return undefined;
+      const value = first.current ?? first.available;
+      if (typeof value !== "number") return undefined;
+      return Math.round(value * 100);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Raised when the provider returns 401/403, indicating the token/consent is no
+ * longer valid and the connection needs re-authentication (spec §15.3).
+ */
+export class AuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthorizationError";
   }
 }

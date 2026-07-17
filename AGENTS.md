@@ -43,8 +43,10 @@ Standard npm scripts (see `package.json`):
   the app runs in demo mode using a simulated bank + in-memory Actual budget, so the whole
   setup/sync flow is clickable without external services. Force it with `DEMO_MODE=1`. In
   demo mode an ephemeral encryption key is auto-created at `<dataDir>/demo-encryption.key`.
-- Live Actual sync needs the optional `@actual-app/api` package (not installed by default,
-  and not runnable without a real Actual server); the code loads it lazily.
+- Live Actual sync needs the `@actual-app/api` package. It is declared under
+ `optionalDependencies` (so demo mode/tests still work if it can't be built, e.g. armv7
+ under emulation) and is loaded lazily. Its major.minor should match the Actual server
+ version; the Actual connection test warns on a mismatch (`src/actual/versionCheck.ts`).
 - `better-sqlite3` is a native module installed via prebuilt binary during `npm install`.
   The `Dockerfile` uses a Debian (glibc) base and includes `python3`/`make`/`g++` in the
   build stage so `better-sqlite3` builds reliably in the image.

@@ -6,6 +6,7 @@ import { escapeHtml, layout } from "./layout.js";
 
 export interface DashboardViewModel {
   demoMode: boolean;
+  warnings?: string[];
   actual: { status: string; serverUrl?: string; syncId?: string };
   connections: (BankConnectionRow & { mappedAccounts: number })[];
   lastSync?: SyncRunRow;
@@ -44,7 +45,12 @@ export function dashboardPage(vm: DashboardViewModel): string {
       </table>`
     : `<p class="muted">No syncs run yet.</p>`;
 
+  const warningBanners = (vm.warnings ?? [])
+    .map((w) => `<div class="flash error">${escapeHtml(w)}</div>`)
+    .join("");
+
   const body = `
+    ${warningBanners}
     <div class="card">
       <h2>Actual Budget</h2>
       <table>

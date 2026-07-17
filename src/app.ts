@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +59,8 @@ export async function buildApp(
 
   await app.register(formbody);
 
+  registerBasicAuth(app, services.config);
+
   await app.register(async (instance) => healthRoutes(instance));
   await app.register(async (instance) => statusRoutes(instance, services));
   await app.register(async (instance) => setupRoutes(instance, services));
@@ -74,4 +77,44 @@ export async function buildApp(
   }
 
   return app;
+}
+
+/** Constant-time string comparison that tolerates differing lengths. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Optional built-in HTTP Basic Auth (spec §16.4). Enabled only when both
+ * APP_BASIC_AUTH_USER and APP_BASIC_AUTH_PASSWORD are set. `/health` is always
+ * left open so container/orchestrator health checks keep working.
+ */
+function registerBasicAuth(app: FastifyInstance, config: AppConfig): void {
+  const { user, password } = config.basicAuth;
+  if (!user || !password) return;
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.url === "/health") return;
+
+    const header = request.headers.authorization ?? "";
+    if (header.startsWith("Basic ")) {
+      const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
+      const index = decoded.indexOf(":");
+      if (index !== -1) {
+        const suppliedUser = decoded.slice(0, index);
+        const suppliedPassword = decoded.slice(index + 1);
+        if (safeEqual(suppliedUser, user) && safeEqual(suppliedPassword, password)) {
+          return;
+        }
+      }
+    }
+
+    await reply
+      .header("WWW-Authenticate", 'Basic realm="actual-truelayer-manager"')
+      .code(401)
+      .send("Authentication required.");
+  });
 }

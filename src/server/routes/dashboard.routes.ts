@@ -23,9 +23,31 @@ export async function dashboardRoutes(
       mappedAccounts: mappedByConnection.get(c.id) ?? 0,
     }));
 
+    const warnings: string[] = [];
+    const warnMs =
+      services.config.consentExpiryWarningDays * 86_400_000;
+    for (const c of connections) {
+      if (c.status === "reauth_required") {
+        warnings.push(
+          `"${c.display_name}" needs re-authentication. Use "Reconnect bank" on the Connections page.`,
+        );
+        continue;
+      }
+      if (c.consent_expires_at) {
+        const remaining = new Date(c.consent_expires_at).getTime() - Date.now();
+        if (!Number.isNaN(remaining) && remaining <= warnMs) {
+          const days = Math.max(0, Math.ceil(remaining / 86_400_000));
+          warnings.push(
+            `Consent for "${c.display_name}" expires in ${days} day(s) (${c.consent_expires_at.slice(0, 10)}). Reconnect soon to avoid interruption.`,
+          );
+        }
+      }
+    }
+
     return reply.type("text/html").send(
       dashboardPage({
-        demoMode: services.config.demoMode,
+        demoMode: services.isDemoProvider(),
+        warnings,
         actual: {
           status: actualConfig ? "ok" : "not_configured",
           serverUrl: actualConfig?.server_url,

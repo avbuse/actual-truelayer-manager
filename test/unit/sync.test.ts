@@ -10,7 +10,13 @@ import { DemoActualClient } from "../../src/actual/demoActualClient.js";
 import { DemoProvider } from "../../src/providers/demo/demoProvider.js";
 import { SyncRunner } from "../../src/sync/syncRunner.js";
 import { transactionKey } from "../../src/sync/normalise.js";
-import type { BankTransaction } from "../../src/providers/bankingProvider.js";
+import { AuthorizationError } from "../../src/providers/truelayer/truelayerProvider.js";
+import type {
+  BankAccount,
+  BankTransaction,
+  BankingProvider,
+  TokenSet,
+} from "../../src/providers/bankingProvider.js";
 
 function setup() {
   const db = openDatabase(":memory:");
@@ -90,6 +96,134 @@ describe("SyncRunner", () => {
     expect(second.imported).toBe(0);
     expect(second.duplicate).toBeGreaterThan(0);
     expect(second.duplicate).toBe(second.fetched);
+    db.close();
+  });
+});
+
+class MockProvider implements BankingProvider {
+  readonly name = "mock";
+  refreshCalls = 0;
+  lastAccessToken: string | undefined;
+
+  constructor(
+    private readonly behaviour: {
+      transactions?: BankTransaction[];
+      throwAuthOnList?: boolean;
+    } = {},
+  ) {}
+
+  async createAuthUrl(): Promise<string> {
+    return "https://mock/auth";
+  }
+
+  async exchangeAuthCode(): Promise<TokenSet> {
+    return this.mint();
+  }
+
+  async refreshToken(): Promise<TokenSet> {
+    this.refreshCalls += 1;
+    return this.mint("refreshed-access");
+  }
+
+  async listAccounts(): Promise<BankAccount[]> {
+    return [];
+  }
+
+  async listTransactions(input: {
+    tokens: TokenSet;
+  }): Promise<BankTransaction[]> {
+    this.lastAccessToken = input.tokens.accessToken;
+    if (this.behaviour.throwAuthOnList) {
+      throw new AuthorizationError("token no longer valid");
+    }
+    return this.behaviour.transactions ?? [];
+  }
+
+  private mint(access = "mock-access"): TokenSet {
+    return {
+      accessToken: access,
+      refreshToken: "mock-refresh",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      scope: "accounts",
+      tokenType: "Bearer",
+    };
+  }
+}
+
+function setupWith(provider: BankingProvider, expiresAt: string | undefined) {
+  const db = openDatabase(":memory:");
+  const enc = createEncryptor(randomBytes(32).toString("base64"));
+  const connections = new ConnectionsRepo(db, enc);
+  const mappings = new MappingsRepo(db);
+  const syncRuns = new SyncRunsRepo(db);
+  const config = loadConfig({ DEMO_MODE: "1", APP_DB_PATH: ":memory:" });
+
+  connections.create({
+    id: "c1",
+    provider: provider.name,
+    displayName: "Mock",
+    connectionType: "bank_account",
+    status: "active",
+  });
+  connections.saveTokens("c1", {
+    accessToken: "stale-access",
+    refreshToken: "stale-refresh",
+    expiresAt,
+  });
+  mappings.upsert({
+    id: "m1",
+    connectionId: "c1",
+    providerAccountId: "acc-1",
+    actualAccountId: "actual-current",
+    actualAccountName: "Current",
+  });
+
+  const runner = new SyncRunner({
+    config,
+    provider,
+    actual: new DemoActualClient(),
+    connections,
+    mappings,
+    syncRuns,
+  });
+  return { db, runner, connections };
+}
+
+describe("SyncRunner token handling", () => {
+  it("refreshes an expiring token and persists the new one", async () => {
+    const provider = new MockProvider({ transactions: [] });
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const { db, runner, connections } = setupWith(provider, past);
+
+    await runner.run({ dryRun: false, mode: "manual" });
+
+    expect(provider.refreshCalls).toBe(1);
+    expect(provider.lastAccessToken).toBe("refreshed-access");
+    expect(connections.getTokens("c1")?.accessToken).toBe("refreshed-access");
+    db.close();
+  });
+
+  it("does not refresh a token that is still valid", async () => {
+    const provider = new MockProvider({ transactions: [] });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const { db, runner } = setupWith(provider, future);
+
+    await runner.run({ dryRun: false, mode: "manual" });
+
+    expect(provider.refreshCalls).toBe(0);
+    expect(provider.lastAccessToken).toBe("stale-access");
+    db.close();
+  });
+
+  it("marks the connection reauth_required on an authorization error", async () => {
+    const provider = new MockProvider({ throwAuthOnList: true });
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const { db, runner, connections } = setupWith(provider, future);
+
+    const summary = await runner.run({ dryRun: false, mode: "manual" });
+
+    expect(summary.failed).toBeGreaterThan(0);
+    expect(connections.get("c1")?.status).toBe("reauth_required");
     db.close();
   });
 });

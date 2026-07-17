@@ -34,6 +34,19 @@ export async function finaliseConnection(
   });
 
   const accounts = await provider.listAccounts({ tokens });
+
+  let consentExpiresAt: string | undefined;
+  if (provider.getConsentExpiry) {
+    try {
+      consentExpiresAt = await provider.getConsentExpiry({ tokens });
+    } catch {
+      consentExpiresAt = undefined;
+    }
+  }
+  if (consentExpiresAt) {
+    services.connections.setConsentExpiry(connectionId, consentExpiresAt);
+  }
+
   for (const account of accounts) {
     services.connections.upsertProviderAccount({
       id: randomUUID(),

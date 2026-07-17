@@ -47,4 +47,51 @@ describe("loadConfig", () => {
   it("throws on a non-numeric port", () => {
     expect(() => loadConfig({ APP_PORT: "not-a-number" })).toThrow(/integer/);
   });
+
+  it("auto-detects demo mode when no live creds are present", () => {
+    expect(loadConfig({}).demoMode).toBe(true);
+    expect(loadConfig({}).demoForced).toBeUndefined();
+  });
+
+  it("goes live automatically when TrueLayer + Actual are configured", () => {
+    const config = loadConfig({
+      TRUELAYER_CLIENT_ID: "id",
+      ACTUAL_SERVER_URL: "http://actual:5006",
+    });
+    expect(config.demoMode).toBe(false);
+  });
+
+  it("honours an explicit DEMO_MODE override", () => {
+    const forcedDemo = loadConfig({
+      DEMO_MODE: "1",
+      TRUELAYER_CLIENT_ID: "id",
+      ACTUAL_SERVER_URL: "http://actual:5006",
+    });
+    expect(forcedDemo.demoMode).toBe(true);
+    expect(forcedDemo.demoForced).toBe(true);
+
+    const forcedLive = loadConfig({ DEMO_MODE: "0" });
+    expect(forcedLive.demoMode).toBe(false);
+    expect(forcedLive.demoForced).toBe(false);
+  });
+
+  it("parses TrueLayer sandbox and base-url overrides", () => {
+    const config = loadConfig({
+      TRUELAYER_USE_SANDBOX: "true",
+      TRUELAYER_AUTH_BASE_URL: "https://auth.example",
+      TRUELAYER_API_BASE_URL: "https://api.example",
+    });
+    expect(config.truelayer.useSandbox).toBe(true);
+    expect(config.truelayer.authBaseUrl).toBe("https://auth.example");
+    expect(config.truelayer.apiBaseUrl).toBe("https://api.example");
+  });
+
+  it("parses basic-auth credentials", () => {
+    const config = loadConfig({
+      APP_BASIC_AUTH_USER: "admin",
+      APP_BASIC_AUTH_PASSWORD: "pw",
+    });
+    expect(config.basicAuth.user).toBe("admin");
+    expect(config.basicAuth.password).toBe("pw");
+  });
 });

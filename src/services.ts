@@ -16,7 +16,7 @@ import { MappingsRepo } from "./db/repositories/mappings.repo.js";
 import { SettingsRepo } from "./db/repositories/settings.repo.js";
 import { SyncRunsRepo } from "./db/repositories/syncRuns.repo.js";
 import { LogBuffer } from "./logging/logBuffer.js";
-import { createProvider } from "./providers/registry.js";
+import { createProvider, resolveTrueLayerConfig } from "./providers/registry.js";
 import type { BankingProvider } from "./providers/bankingProvider.js";
 import { SyncRunner } from "./sync/syncRunner.js";
 
@@ -24,26 +24,37 @@ export interface Services {
   config: AppConfig;
   db: Db;
   encryptor: Encryptor | null;
+  /** True when the encryption key comes from APP_ENCRYPTION_KEY(_FILE). */
+  hasDurableKey: boolean;
   settings: SettingsRepo;
   actualRepo: ActualRepo;
   connections: ConnectionsRepo;
   mappings: MappingsRepo;
   syncRuns: SyncRunsRepo;
-  provider: BankingProvider;
   logs: LogBuffer;
+  getProvider(): BankingProvider;
+  invalidateProvider(): void;
   getActualClient(): ActualClient;
+  invalidateActualClient(): void;
+  /** True when the active banking provider is the built-in demo. */
+  isDemoProvider(): boolean;
   createSyncRunner(): SyncRunner;
   close(): void;
+}
+
+interface ResolvedEncryptor {
+  encryptor: Encryptor | null;
+  durable: boolean;
 }
 
 /**
  * In demo mode without a configured key, generate/persist an ephemeral key so
  * the (fake) tokens can still be stored encrypted rather than in plaintext.
  */
-function resolveEncryptor(config: AppConfig): Encryptor | null {
+function resolveEncryptor(config: AppConfig): ResolvedEncryptor {
   const configured = loadEncryptor();
-  if (configured) return configured;
-  if (!config.demoMode) return null;
+  if (configured) return { encryptor: configured, durable: true };
+  if (!config.demoMode) return { encryptor: null, durable: false };
 
   mkdirSync(config.dataDir, { recursive: true });
   const keyPath = join(config.dataDir, "demo-encryption.key");
@@ -54,12 +65,12 @@ function resolveEncryptor(config: AppConfig): Encryptor | null {
     key = randomBytes(32).toString("base64");
     writeFileSync(keyPath, key, { mode: 0o600 });
   }
-  return createEncryptor(key);
+  return { encryptor: createEncryptor(key), durable: false };
 }
 
 export function buildServices(config: AppConfig): Services {
   const db = openDatabase(config.dbPath);
-  const encryptor = resolveEncryptor(config);
+  const { encryptor, durable } = resolveEncryptor(config);
   const logs = new LogBuffer();
 
   const settings = new SettingsRepo(db);
@@ -67,44 +78,78 @@ export function buildServices(config: AppConfig): Services {
   const connections = new ConnectionsRepo(db, encryptor);
   const mappings = new MappingsRepo(db);
   const syncRuns = new SyncRunsRepo(db);
-  const provider = createProvider(config);
+
+  const decrypt = (value: string): string =>
+    encryptor ? encryptor.decrypt(value) : value;
+
+  let cachedProvider: BankingProvider | null = null;
+  const getProvider = (): BankingProvider => {
+    if (cachedProvider) return cachedProvider;
+    let resolved = null;
+    if (encryptor) {
+      try {
+        resolved = resolveTrueLayerConfig(config, settings, decrypt);
+      } catch (error) {
+        logs.warn(
+          `Could not read stored TrueLayer credentials: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`,
+        );
+      }
+    }
+    cachedProvider = createProvider(config, resolved);
+    return cachedProvider;
+  };
+  const invalidateProvider = (): void => {
+    cachedProvider = null;
+  };
 
   let cachedActual: ActualClient | null = null;
-
   const getActualClient = (): ActualClient => {
     if (cachedActual) return cachedActual;
     const credentials = resolveActualCredentials(
       config,
       actualRepo.get(),
-      (value) => (encryptor ? encryptor.decrypt(value) : value),
+      decrypt,
     );
     cachedActual = createActualClient(config, credentials);
     return cachedActual;
+  };
+  const invalidateActualClient = (): void => {
+    void cachedActual?.shutdown().catch(() => undefined);
+    cachedActual = null;
   };
 
   const createSyncRunner = (): SyncRunner =>
     new SyncRunner({
       config,
-      provider,
+      provider: getProvider(),
       actual: getActualClient(),
       connections,
       mappings,
       syncRuns,
-      logger: { info: (m) => logs.info(m), warn: (m) => logs.warn(m) },
+      logger: {
+        info: (m) => logs.info(m),
+        warn: (m) => logs.warn(m),
+      },
     });
 
   return {
     config,
     db,
     encryptor,
+    hasDurableKey: durable,
     settings,
     actualRepo,
     connections,
     mappings,
     syncRuns,
-    provider,
     logs,
+    getProvider,
+    invalidateProvider,
     getActualClient,
+    invalidateActualClient,
+    isDemoProvider: () => getProvider().name === "demo",
     createSyncRunner,
     close: () => db.close(),
   };

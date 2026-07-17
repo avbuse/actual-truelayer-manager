@@ -72,4 +72,9 @@ export interface BankingProvider {
   refreshToken(input: RefreshTokenInput): Promise<TokenSet>;
   listAccounts(input: ListAccountsInput): Promise<BankAccount[]>;
   listTransactions(input: ListTransactionsInput): Promise<BankTransaction[]>;
+  /**
+   * Optional: returns an ISO timestamp for when the current consent expires, or
+   * `undefined` when the provider cannot determine it (spec §15.4).
+   */
+  getConsentExpiry?(input: ListAccountsInput): Promise<string | undefined>;
 }
