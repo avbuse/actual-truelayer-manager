@@ -5,7 +5,7 @@
   "description": "Docker-first app to sync UK Open Banking transactions from TrueLayer into Actual Budget",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -30,6 +30,6 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.19.1",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   }
 }
