@@ -79,3 +79,13 @@ On every push to `main` (and on tags) the [`Build Docker image`](./.github/workf
 GitHub Actions workflow builds and publishes the image to the GitHub Container Registry
 at `ghcr.io/<owner>/actual-truelayer-manager`. Pull requests build the image without
 pushing, as a check.
+
+The image is **multi-arch**, published for:
+
+- `linux/amd64` — regular x86-64 servers
+- `linux/arm64` — 64-bit Raspberry Pi OS (Pi 3/4/5) and other aarch64 hosts
+- `linux/arm/v7` — 32-bit Raspberry Pi OS (armhf)
+
+Docker automatically pulls the correct architecture, so on a Raspberry Pi you can simply
+`docker compose up -d` (or `docker pull ghcr.io/<owner>/actual-truelayer-manager`) with no
+extra flags.

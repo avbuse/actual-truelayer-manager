@@ -22,6 +22,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Enables building arm64 / armv7 images (Raspberry Pi) via emulation.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -50,6 +54,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          # Multi-arch: amd64 + arm64 (64-bit Raspberry Pi OS) + armv7 (32-bit Pi OS).
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           # Push on pushes to main / tags; build-only on pull requests.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
