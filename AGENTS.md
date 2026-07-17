@@ -55,4 +55,10 @@ Standard npm scripts (see `package.json`):
   `compose.actual-budget.yml` (manager + `actualbudget/actual-server` in one stack; the
   manager reaches Actual at `http://actual-server:5006`).
 - CI: `.github/workflows/docker-build.yml` builds the image on PRs and builds+pushes to
-  GHCR on pushes to `main`/tags.
+  GHCR on pushes to `main`/tags. It builds a **multi-arch** manifest for
+  `linux/amd64,linux/arm64,linux/arm/v7` (Raspberry Pi 64-bit and 32-bit) via QEMU.
+- To build arm images locally you must mount binfmt_misc first
+  (`sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc`), then register QEMU
+  (`docker run --privileged --rm tonistiigi/binfmt --install arm64,arm`) and use a
+  `docker-container` buildx builder. `better-sqlite3` compiles from source under emulation
+  (the Dockerfile's build stage has the needed toolchain), so arm builds are slower.
