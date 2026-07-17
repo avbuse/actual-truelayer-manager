@@ -9,9 +9,21 @@ import { connectPage } from "../views/connect.js";
 
 function buildSetupModel(services: Services): Omit<SetupViewModel, "flash"> {
   const actualConfig = services.actualRepo.get();
-  const clientId = services.settings.get("truelayer.client_id");
+  const clientId =
+    services.config.truelayer.clientId ??
+    services.settings.get("truelayer.client_id");
+  const demoMode = services.isDemoProvider();
+
+  const warnings: string[] = [];
+  if (!demoMode && !services.hasDurableKey) {
+    warnings.push(
+      "No durable APP_ENCRYPTION_KEY is configured. Set one before connecting a real bank — banking tokens must not be stored under an ephemeral key.",
+    );
+  }
+
   return {
-    demoMode: services.config.demoMode,
+    demoMode,
+    warnings,
     actual: {
       configured: Boolean(actualConfig),
       serverUrl: actualConfig?.server_url,
@@ -71,6 +83,7 @@ export async function setupRoutes(
         : (existing?.encryption_password_encrypted ?? null),
     });
 
+    services.invalidateActualClient();
     const test = await services.getActualClient().testConnection();
     services.logs.info(`Actual connection test: ${test.message}`);
     return reply.redirect(
@@ -94,12 +107,22 @@ export async function setupRoutes(
     }
     services.settings.set("truelayer.client_id", clientId);
     services.settings.set("truelayer.redirect_mode", redirectMode);
-    if (clientSecret && services.encryptor) {
+    if (clientSecret) {
+      if (!services.encryptor) {
+        return reply.redirect(
+          withFlash(
+            "/setup",
+            "error",
+            "Cannot store the TrueLayer client secret without an encryption key. Set APP_ENCRYPTION_KEY first.",
+          ),
+        );
+      }
       services.settings.set(
         "truelayer.client_secret_enc",
         services.encryptor.encrypt(clientSecret),
       );
     }
+    services.invalidateProvider();
     services.logs.info("TrueLayer credentials saved");
     return reply.redirect(withFlash("/setup", "ok", "TrueLayer config saved."));
   });
@@ -124,10 +147,23 @@ export async function setupRoutes(
         ? "credit_card"
         : "bank_account";
 
+    const provider = services.getProvider();
+    const isDemo = provider.name === "demo";
+
+    if (!isDemo && !services.hasDurableKey) {
+      return reply.redirect(
+        withFlash(
+          "/setup",
+          "error",
+          "Set a durable APP_ENCRYPTION_KEY before connecting a real bank.",
+        ),
+      );
+    }
+
     const connectionId = randomUUID();
     services.connections.create({
       id: connectionId,
-      provider: services.provider.name,
+      provider: provider.name,
       displayName,
       connectionType,
       status: "setup_pending",
@@ -144,20 +180,20 @@ export async function setupRoutes(
         ? `${services.config.baseUrl}/oauth/truelayer/callback`
         : "https://console.truelayer.com/redirect-page";
 
-    const authUrl = await services.provider.createAuthUrl({
+    const authUrl = await provider.createAuthUrl({
       state,
       redirectUri,
       connectionType,
     });
 
-    if (services.config.demoMode) {
-      const tokens = await services.provider.exchangeAuthCode({
+    if (isDemo) {
+      const tokens = await provider.exchangeAuthCode({
         code: "demo-code",
         redirectUri,
       });
       const count = await finaliseConnection(
         services,
-        services.provider,
+        provider,
         connectionId,
         tokens,
       );
@@ -185,14 +221,15 @@ export async function setupRoutes(
     const connectionId = bodyStr(request.body, "connection_id");
     const redirectUrl = bodyStr(request.body, "redirect_url");
     try {
+      const provider = services.getProvider();
       const parsed = parseRedirectUrl(redirectUrl);
-      const tokens = await services.provider.exchangeAuthCode({
+      const tokens = await provider.exchangeAuthCode({
         code: parsed.code,
         redirectUri: "https://console.truelayer.com/redirect-page",
       });
       const count = await finaliseConnection(
         services,
-        services.provider,
+        provider,
         connectionId,
         tokens,
       );
@@ -228,13 +265,14 @@ export async function setupRoutes(
       );
     }
     try {
-      const tokens = await services.provider.exchangeAuthCode({
+      const provider = services.getProvider();
+      const tokens = await provider.exchangeAuthCode({
         code,
         redirectUri: `${services.config.baseUrl}/oauth/truelayer/callback`,
       });
       const count = await finaliseConnection(
         services,
-        services.provider,
+        provider,
         connectionId,
         tokens,
       );

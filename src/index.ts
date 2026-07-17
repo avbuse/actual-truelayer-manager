@@ -6,6 +6,16 @@ import { Scheduler } from "./sync/scheduler.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   const services = buildServices(config);
+
+  if (!config.demoMode && !services.hasDurableKey) {
+    services.close();
+    throw new Error(
+      "Live mode requires a durable encryption key. Set APP_ENCRYPTION_KEY (or " +
+        "APP_ENCRYPTION_KEY_FILE) so banking tokens are encrypted at rest, or run " +
+        "with DEMO_MODE=1. Refusing to start without encryption.",
+    );
+  }
+
   const app = await buildApp({ logLevel: config.logLevel, config, services });
 
   const scheduleHours = Number(

@@ -27,13 +27,14 @@ export async function connectionsRoutes(
       );
     }
     try {
+      const provider = services.getProvider();
       const existing = services.connections.getTokens(id);
-      const tokens = await services.provider.refreshToken({
+      const tokens = await provider.refreshToken({
         refreshToken: existing?.refreshToken ?? "demo-refresh",
       });
       const count = await finaliseConnection(
         services,
-        services.provider,
+        provider,
         id,
         tokens,
       );

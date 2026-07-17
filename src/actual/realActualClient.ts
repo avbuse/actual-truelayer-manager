@@ -7,6 +7,7 @@ import type {
   ActualImportTransaction,
   ImportResult,
 } from "./actualClient.js";
+import { checkActualVersion } from "./versionCheck.js";
 
 /** Minimal surface of `@actual-app/api` that this client depends on. */
 interface ActualApi {
@@ -20,6 +21,7 @@ interface ActualApi {
     options?: { password?: string },
   ): Promise<void>;
   getAccounts(): Promise<{ id: string; name: string }[]>;
+  getAccountBalance(accountId: string): Promise<number>;
   importTransactions(
     accountId: string,
     transactions: Record<string, unknown>[],
@@ -73,9 +75,11 @@ export class RealActualClient implements ActualClient {
 
   async testConnection(): Promise<{ ok: boolean; message: string }> {
     try {
+      const version = await checkActualVersion(this.info.serverUrl);
       const api = await this.init();
       await api.getAccounts();
-      return { ok: true, message: "Connected to Actual server." };
+      const suffix = version.compatible ? "" : ` Warning: ${version.message}`;
+      return { ok: true, message: `Connected to Actual server.${suffix}` };
     } catch (error) {
       return {
         ok: false,
@@ -109,6 +113,16 @@ export class RealActualClient implements ActualClient {
       added: result.added?.length ?? 0,
       updated: result.updated?.length ?? 0,
     };
+  }
+
+  async getAccountBalance(accountId: string): Promise<number | undefined> {
+    const api = await this.init();
+    try {
+      // Actual returns balances in minor units (integer).
+      return await api.getAccountBalance(accountId);
+    } catch {
+      return undefined;
+    }
   }
 
   async shutdown(): Promise<void> {

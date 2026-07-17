@@ -1,22 +1,61 @@
 import type { AppConfig } from "../config/env.js";
 import type { BankingProvider } from "./bankingProvider.js";
 import { DemoProvider } from "./demo/demoProvider.js";
-import { TrueLayerProvider } from "./truelayer/truelayerProvider.js";
+import {
+  TrueLayerProvider,
+  type TrueLayerConfig,
+} from "./truelayer/truelayerProvider.js";
+
+export interface SettingsReader {
+  get(key: string): string | undefined;
+}
 
 /**
- * Selects the active banking provider. Uses the built-in demo provider unless
- * live TrueLayer credentials are configured and demo mode is off.
+ * Resolves usable TrueLayer credentials by merging environment variables with
+ * values saved through the setup wizard (stored in `settings`). The client
+ * secret is stored encrypted, so a `decrypt` function is required to read it.
+ * Returns `null` when no complete credential pair is available.
  */
-export function createProvider(config: AppConfig): BankingProvider {
-  if (
-    !config.demoMode &&
-    config.truelayer.clientId &&
-    config.truelayer.clientSecret
-  ) {
-    return new TrueLayerProvider({
-      clientId: config.truelayer.clientId,
-      clientSecret: config.truelayer.clientSecret,
-    });
+export function resolveTrueLayerConfig(
+  config: AppConfig,
+  settings: SettingsReader,
+  decrypt: (value: string) => string,
+): TrueLayerConfig | null {
+  const clientId =
+    config.truelayer.clientId ?? settings.get("truelayer.client_id");
+
+  const storedSecret = settings.get("truelayer.client_secret_enc");
+  const clientSecret =
+    config.truelayer.clientSecret ??
+    (storedSecret ? decrypt(storedSecret) : undefined);
+
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  return {
+    clientId,
+    clientSecret,
+    useSandbox: config.truelayer.useSandbox,
+    authBaseUrl: config.truelayer.authBaseUrl,
+    apiBaseUrl: config.truelayer.apiBaseUrl,
+  };
+}
+
+/**
+ * Selects the active banking provider. Uses the built-in demo provider when
+ * demo mode is explicitly forced or when no live TrueLayer credentials are
+ * available; otherwise the live TrueLayer provider.
+ */
+export function createProvider(
+  config: AppConfig,
+  resolved: TrueLayerConfig | null,
+): BankingProvider {
+  if (config.demoForced === true) {
+    return new DemoProvider();
+  }
+  if (resolved) {
+    return new TrueLayerProvider(resolved);
   }
   return new DemoProvider();
 }

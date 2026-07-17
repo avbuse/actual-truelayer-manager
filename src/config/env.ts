@@ -55,6 +55,7 @@ export interface AppConfig {
   syncOverlapDays: number;
   syncDaysLookback: number;
   balanceDriftWarningMinor: number;
+  consentExpiryWarningDays: number;
   dataDir: string;
   dbPath: string;
   /**
@@ -63,6 +64,12 @@ export interface AppConfig {
    * unless live credentials are provided (or DEMO_MODE is explicitly set).
    */
   demoMode: boolean;
+  /**
+   * The explicit `DEMO_MODE` env override, if the operator set one. `true`
+   * forces demo backends; `false` forces live backends whenever real
+   * credentials are available. `undefined` means "auto-detect" (the default).
+   */
+  demoForced?: boolean;
   actual: {
     serverUrl?: string;
     password?: string;
@@ -74,6 +81,13 @@ export interface AppConfig {
     clientSecret?: string;
     redirectMode: "manual" | "direct";
     callbackUrl?: string;
+    useSandbox: boolean;
+    authBaseUrl?: string;
+    apiBaseUrl?: string;
+  };
+  basicAuth: {
+    user?: string;
+    password?: string;
   };
 }
 
@@ -99,10 +113,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ? ("direct" as const)
         : ("manual" as const),
     callbackUrl: readEnvOrFile("TRUELAYER_CALLBACK_URL", env),
+    useSandbox: parseBool(readEnvOrFile("TRUELAYER_USE_SANDBOX", env), false),
+    authBaseUrl: readEnvOrFile("TRUELAYER_AUTH_BASE_URL", env),
+    apiBaseUrl: readEnvOrFile("TRUELAYER_API_BASE_URL", env),
   };
 
   const hasLiveCreds = Boolean(truelayer.clientId && actual.serverUrl);
-  const demoMode = parseBool(readEnvOrFile("DEMO_MODE", env), !hasLiveCreds);
+  const demoRaw = readEnvOrFile("DEMO_MODE", env);
+  const demoForced = demoRaw === undefined ? undefined : parseBool(demoRaw, false);
+  const demoMode = demoForced ?? !hasLiveCreds;
 
   return {
     bindHost: readEnvOrFile("APP_BIND_HOST", env) ?? "127.0.0.1",
@@ -125,10 +144,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       readEnvOrFile("BALANCE_DRIFT_WARNING_MINOR", env),
       100,
     ),
+    consentExpiryWarningDays: parseIntWithDefault(
+      readEnvOrFile("CONSENT_EXPIRY_WARNING_DAYS", env),
+      14,
+    ),
     dataDir,
     dbPath: readEnvOrFile("APP_DB_PATH", env) ?? `${dataDir}/sync.db`,
     demoMode,
+    demoForced,
     actual,
     truelayer,
+    basicAuth: {
+      user: readEnvOrFile("APP_BASIC_AUTH_USER", env),
+      password: readEnvOrFile("APP_BASIC_AUTH_PASSWORD", env),
+    },
   };
 }

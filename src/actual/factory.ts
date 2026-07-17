@@ -12,15 +12,15 @@ export interface ActualCredentials {
 }
 
 /**
- * Builds an {@link ActualClient}. Returns the demo client in demo mode;
- * otherwise a live `@actual-app/api`-backed client using the supplied
- * credentials.
+ * Builds an {@link ActualClient}. Returns the demo client when demo mode is
+ * forced or when no complete Actual credentials are available; otherwise a live
+ * `@actual-app/api`-backed client using the supplied credentials.
  */
 export function createActualClient(
   config: AppConfig,
   credentials: ActualCredentials | null,
 ): ActualClient {
-  if (config.demoMode || !credentials) {
+  if (config.demoForced === true || !credentials) {
     return new DemoActualClient();
   }
   return new RealActualClient(credentials, config.dataDir);

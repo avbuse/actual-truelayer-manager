@@ -51,6 +51,10 @@ export class DemoProvider implements BankingProvider {
     return this.mintTokens();
   }
 
+  async getConsentExpiry(): Promise<string | undefined> {
+    return new Date(Date.now() + 90 * 86_400_000).toISOString();
+  }
+
   async listAccounts(_input: ListAccountsInput): Promise<BankAccount[]> {
     return [
       {

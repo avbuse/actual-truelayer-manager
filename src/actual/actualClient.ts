@@ -36,5 +36,10 @@ export interface ActualClient {
     accountId: string,
     transactions: ActualImportTransaction[],
   ): Promise<ImportResult>;
+  /**
+   * Optional: current balance of an Actual account in minor units, used for
+   * balance-drift warnings (spec §13.5). Returns `undefined` when unavailable.
+   */
+  getAccountBalance?(accountId: string): Promise<number | undefined>;
   shutdown(): Promise<void>;
 }

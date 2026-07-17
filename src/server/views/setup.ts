@@ -2,6 +2,7 @@ import { escapeHtml, layout } from "./layout.js";
 
 export interface SetupViewModel {
   demoMode: boolean;
+  warnings?: string[];
   actual: { configured: boolean; serverUrl?: string; syncId?: string };
   truelayer: { configured: boolean; clientId?: string; redirectMode: string };
   connectionCount: number;
@@ -19,8 +20,13 @@ export function setupPage(vm: SetupViewModel): string {
     ? `<div class="flash ok">Demo mode is active — a simulated bank and Actual budget are used, so you can complete the whole flow without real credentials. Set <code>TRUELAYER_CLIENT_ID</code> and <code>ACTUAL_SERVER_URL</code> for live mode.</div>`
     : "";
 
+  const warningBanners = (vm.warnings ?? [])
+    .map((w) => `<div class="flash error">${escapeHtml(w)}</div>`)
+    .join("");
+
   const body = `
     ${demoBanner}
+    ${warningBanners}
     <div class="card">
       ${stepBadge(vm.actual.configured, 1)}
         <div style="flex:1">

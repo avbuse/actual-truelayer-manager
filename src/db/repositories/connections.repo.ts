@@ -78,6 +78,14 @@ export class ConnectionsRepo {
       .run(status, new Date().toISOString(), id);
   }
 
+  setConsentExpiry(id: string, consentExpiresAt: string): void {
+    this.db
+      .prepare(
+        "UPDATE bank_connections SET consent_expires_at = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(consentExpiresAt, new Date().toISOString(), id);
+  }
+
   saveTokens(connectionId: string, tokens: TokenSetRecord): void {
     if (!this.encryptor) {
       throw new Error(
