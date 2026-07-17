@@ -33,8 +33,17 @@ describe("HTTP app", () => {
     const response = await app.inject({ method: "GET", url: "/setup" });
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.body).toContain("Setup wizard");
     expect(response.body).toContain("Connect to Actual Budget");
+    expect(response.body).toContain("Configure TrueLayer credentials");
+  });
+
+  it("GET /dashboard and /logs render", async () => {
+    const dash = await app.inject({ method: "GET", url: "/dashboard" });
+    expect(dash.statusCode).toBe(200);
+    expect(dash.body).toContain("Actual Budget");
+    const logs = await app.inject({ method: "GET", url: "/logs" });
+    expect(logs.statusCode).toBe(200);
+    expect(logs.body).toContain("Recent logs");
   });
 
   it("GET / redirects to /setup", async () => {

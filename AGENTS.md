@@ -8,10 +8,11 @@ self-hosted Actual Budget instance. The full requirements live in
 `actual-truelayer-manager-project-spec.md`; implementation is organised into the phases
 in section 21 of that spec.
 
-Current state: **Phase 0 scaffold** — Fastify server with `/health`, `/status`, and a
-`/setup` landing page, environment/config loading with `_FILE` secret support, tests,
-lint, and Docker packaging. Later phases (DB, encryption, Actual client, TrueLayer
-provider, sync engine, wizard) are not yet implemented.
+Current state: **Working prototype** covering spec phases 0–8 — Fastify server, SQLite
+persistence (better-sqlite3) with migrations and repositories, AES-256-GCM encryption +
+redaction, a `BankingProvider` abstraction (TrueLayer + built-in demo), an Actual client
+(lazy `@actual-app/api` + built-in demo), a sync engine (dry-run/live/dedupe), an interval
+scheduler, and a server-rendered UI (setup wizard, dashboard, connections, mappings, logs).
 
 ## Commands
 
@@ -34,6 +35,14 @@ Standard npm scripts (see `package.json`):
 - Docker is **not** installed in the base Cloud VM. The `Dockerfile` /
   `compose.example.yml` are valid but cannot be built/run here without first installing
   Docker; validate the app with `npm run dev` instead.
-- Later phases expect a writable data dir at `/app/data` (`APP_DATA_DIR`). Locally it
-  defaults to `/app/data`; override `APP_DATA_DIR` to a writable path (e.g. `./data`)
-  when running outside a container.
+- The data dir defaults to `/app/data` (`APP_DATA_DIR`), which is not writable in the
+  Cloud VM. Always override it, e.g. `APP_DATA_DIR=/workspace/data npm run dev`. The
+  SQLite file lives at `APP_DB_PATH` (defaults to `<dataDir>/sync.db`); `/workspace/data`
+  is gitignored.
+- **Demo mode**: when no live credentials are set (`TRUELAYER_CLIENT_ID` + `ACTUAL_SERVER_URL`),
+  the app runs in demo mode using a simulated bank + in-memory Actual budget, so the whole
+  setup/sync flow is clickable without external services. Force it with `DEMO_MODE=1`. In
+  demo mode an ephemeral encryption key is auto-created at `<dataDir>/demo-encryption.key`.
+- Live Actual sync needs the optional `@actual-app/api` package (not installed by default,
+  and not runnable without a real Actual server); the code loads it lazily.
+- `better-sqlite3` is a native module installed via prebuilt binary during `npm install`.
