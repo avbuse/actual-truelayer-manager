@@ -1,7 +1,14 @@
+# Manager-only example using the published GHCR image (no local build).
+#
+#   docker compose -f compose.example.yml up -d
+#   # then open http://localhost:3020/setup
+#
+# Point ACTUAL_SERVER_URL at your Actual Budget host. Without live credentials
+# the manager runs in demo mode. Do not commit real secrets.
+
 services:
   actual-truelayer-manager:
-    build: .
-    image: ghcr.io/YOUR_ORG/actual-truelayer-manager:latest
+    image: ghcr.io/avbuse/actual-truelayer-manager:latest
     container_name: actual-truelayer-manager
     restart: unless-stopped
     ports:
@@ -15,6 +22,10 @@ services:
       SYNC_INTERVAL_HOURS: "6"
       SYNC_OVERLAP_DAYS: "3"
       LOG_LEVEL: "info"
+      # Prefer *_FILE or runtime secret injection for live values:
+      # ACTUAL_PASSWORD_FILE: "/run/secrets/actual_password"
+      # TRUELAYER_CLIENT_SECRET_FILE: "/run/secrets/truelayer_client_secret"
+      # APP_ENCRYPTION_KEY_FILE: "/run/secrets/app_encryption_key"
     volumes:
       - ./data:/app/data
     healthcheck:

@@ -1,5 +1,6 @@
 # Single-stack example running actual-truelayer-manager together with a
-# self-hosted Actual Budget server.
+# self-hosted Actual Budget server. Pulls the published GHCR image — no local
+# build required.
 #
 #   docker compose -f compose.actual-budget.yml up -d
 #   # Actual Budget UI:            http://localhost:5006
@@ -8,6 +9,7 @@
 # First open the Actual Budget UI, create/import a budget, and note its Sync ID
 # and password. Then complete the manager's setup wizard. Without live
 # TRUELAYER_* + ACTUAL_* credentials the manager runs in demo mode.
+# Do not commit real secrets — prefer *_FILE mounts or runtime injection.
 
 services:
   actual-server:
@@ -29,7 +31,6 @@ services:
       retries: 5
 
   actual-truelayer-manager:
-    build: .
     image: ghcr.io/avbuse/actual-truelayer-manager:latest
     container_name: actual-truelayer-manager
     restart: unless-stopped
@@ -49,13 +50,14 @@ services:
       SYNC_INTERVAL_HOURS: "6"
       SYNC_OVERLAP_DAYS: "3"
       LOG_LEVEL: "info"
-      # --- Uncomment and set to enable live mode (otherwise demo mode) ---
-      # ACTUAL_PASSWORD: "your-actual-password"
+      # Prefer *_FILE or runtime secret injection for live values:
+      # ACTUAL_PASSWORD_FILE: "/run/secrets/actual_password"
+      # ACTUAL_ENCRYPTION_PASSWORD_FILE: "/run/secrets/actual_encryption_password"
+      # TRUELAYER_CLIENT_SECRET_FILE: "/run/secrets/truelayer_client_secret"
+      # APP_ENCRYPTION_KEY_FILE: "/run/secrets/app_encryption_key"
+      # Non-secret live identifiers may be set directly when ready:
       # ACTUAL_SYNC_ID: "your-budget-sync-id"
-      # ACTUAL_ENCRYPTION_PASSWORD: "your-e2e-password"   # only if E2E encryption is on
       # TRUELAYER_CLIENT_ID: "your-truelayer-client-id"
-      # TRUELAYER_CLIENT_SECRET: "your-truelayer-client-secret"
-      # APP_ENCRYPTION_KEY: "base64-32-bytes"             # openssl rand -base64 32
     volumes:
       - ./data:/app/data
     healthcheck:
