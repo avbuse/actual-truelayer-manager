@@ -97,7 +97,8 @@ needs a few things in place. See [`.env.example`](./.env.example) for every vari
 4. **Install a matching `@actual-app/api`.** It ships as an optional dependency and is
    loaded lazily. Its major.minor line should match your Actual server version; the
    Actual connection test warns when they differ. Pin it in `package.json` /
-   rebuild the image if you upgrade the server.
+   rebuild the image if you upgrade the server. See [`SECURITY.md`](./SECURITY.md)
+   for the `adm-zip` override applied to that dependency chain.
 
 5. **Protect the UI.** The server binds to `127.0.0.1` by default. If you expose it,
    set `APP_BASIC_AUTH_USER` + `APP_BASIC_AUTH_PASSWORD` (built-in Basic Auth; the
