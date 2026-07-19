@@ -53,9 +53,11 @@ Standard npm scripts (see `package.json`):
 - Docker is not installed in the base VM. To verify image builds locally, install Docker
   and run `dockerd` with `storage-driver: fuse-overlayfs` and `containerd-snapshotter: false`
   plus legacy iptables (Docker 29 defaults otherwise break in this environment).
-- Two compose files exist: `compose.example.yml` (manager only) and
-  `compose.actual-budget.yml` (manager + `actualbudget/actual-server` in one stack; the
-  manager reaches Actual at `http://actual-server:5006`).
+- Three compose files exist, all pulling `ghcr.io/avbuse/actual-truelayer-manager:latest`
+  (no local `build: .` required for operators):
+  `compose.example.yml` (manager only), `compose.actual-budget.yml` (manager +
+  `actualbudget/actual-server`; manager reaches Actual at `http://actual-server:5006`),
+  and `compose.actual-budget-companion.yml` (add the manager to an existing Actual stack).
 - CI: `.github/workflows/docker-build.yml` builds the image on PRs and builds+pushes to
   GHCR on pushes to `main`/tags. It builds a **multi-arch** manifest for
   `linux/amd64,linux/arm64,linux/arm/v7` (Raspberry Pi 64-bit and 32-bit) via QEMU.
