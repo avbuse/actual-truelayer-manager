@@ -1,0 +1,73 @@
+# Companion service for an **existing** Actual Budget compose stack.
+#
+# Use this when Actual Budget is already running (e.g. Dockhand / homelab) and
+# you want to add actual-truelayer-manager beside it using the published image.
+#
+# Prerequisites:
+#   - Your Actual Budget service is on the same Docker network.
+#   - That service is named `actual-server` (default below). If it has a
+#     different name, change ACTUAL_SERVER_URL (and depends_on) to match, e.g.
+#     http://actual-budget:5006 or http://actual:5006.
+#
+# Usage (from this repo, referencing your existing stack's network/services):
+#
+#   # Option A: include alongside your existing compose file
+#   docker compose -f /path/to/actual-compose.yml \
+#                  -f compose.actual-budget-companion.yml up -d
+#
+#   # Option B: copy the service block into your existing compose file and
+#   # ensure both services share a network.
+#
+# Manager UI (localhost only by default): http://localhost:3020/setup
+#
+# Secrets: do NOT commit real Actual / TrueLayer / banking credentials in
+# compose files or plaintext `.env` checked into git. Prefer Docker `*_FILE`
+# mounts or runtime injection from Infisical (or equivalent). Placeholders
+# below are comments only.
+
+services:
+  actual-truelayer-manager:
+    image: ghcr.io/avbuse/actual-truelayer-manager:latest
+    container_name: actual-truelayer-manager
+    restart: unless-stopped
+    # No depends_on here so this file validates on its own and does not
+    # redefine your existing Actual service. When merging into a compose file
+    # that already declares `actual-server`, you may optionally add:
+    #   depends_on:
+    #     actual-server:
+    #       condition: service_healthy
+    # Ensure both services share a Docker network (default when using
+    # `docker compose -f existing.yml -f this-file.yml`).
+    ports:
+      # Host port bound to localhost only; container binds 0.0.0.0 internally.
+      - "127.0.0.1:3020:3020"
+    environment:
+      APP_BIND_HOST: "0.0.0.0"
+      APP_PORT: "3020"
+      APP_BASE_URL: "http://localhost:3020"
+      APP_DATA_DIR: "/app/data"
+      # Change the hostname if your Actual service is not named actual-server.
+      ACTUAL_SERVER_URL: "http://actual-server:5006"
+      SYNC_INTERVAL_HOURS: "6"
+      SYNC_OVERLAP_DAYS: "3"
+      LOG_LEVEL: "info"
+      # Prefer *_FILE or runtime secret injection for live values — do not
+      # commit real secrets. Example Docker secret mounts:
+      # ACTUAL_PASSWORD_FILE: "/run/secrets/actual_password"
+      # ACTUAL_ENCRYPTION_PASSWORD_FILE: "/run/secrets/actual_encryption_password"
+      # TRUELAYER_CLIENT_SECRET_FILE: "/run/secrets/truelayer_client_secret"
+      # APP_ENCRYPTION_KEY_FILE: "/run/secrets/app_encryption_key"
+      # Non-secret live identifiers may be set directly when ready:
+      # ACTUAL_SYNC_ID: "your-budget-sync-id"
+      # TRUELAYER_CLIENT_ID: "your-truelayer-client-id"
+    volumes:
+      - ./actual-truelayer-manager-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3020/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
