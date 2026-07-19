@@ -73,6 +73,28 @@ The manager reaches Actual over the compose network at `http://actual-server:500
 Provide `TRUELAYER_*` and `ACTUAL_*` credentials in the compose file to switch from
 demo mode to live sync.
 
+### Adding to an existing Actual Budget compose stack
+
+If Actual Budget is already running in another compose project, add the manager
+with the published GHCR image (no local `build: .`) via
+[`compose.actual-budget-companion.yml`](./compose.actual-budget-companion.yml):
+
+```bash
+docker compose -f /path/to/your-actual-compose.yml \
+               -f compose.actual-budget-companion.yml up -d
+# Manager UI: http://localhost:3020/setup
+```
+
+The companion file assumes your Actual service is named `actual-server` and sets
+`ACTUAL_SERVER_URL=http://actual-server:5006`. If your service uses another name
+(e.g. `actual-budget`), change that hostname in the companion file (and
+`depends_on`) to match. The UI is bound to `127.0.0.1:3020` by default and
+`/app/data` is persisted under `./actual-truelayer-manager-data`.
+
+Do **not** commit real Actual / TrueLayer / banking secrets in compose files.
+Prefer `*_FILE` mounts or runtime injection from Infisical (or equivalent)
+rather than plaintext `.env` values checked into git.
+
 ## Going live
 
 Demo mode is great for clicking through the flow, but a real TrueLayer → Actual sync
