@@ -50,12 +50,16 @@ export function resolveTrueLayerConfig(
 export function createProvider(
   config: AppConfig,
   resolved: TrueLayerConfig | null,
+  options?: { logger?: TrueLayerConfig["logger"] },
 ): BankingProvider {
   if (config.demoForced === true) {
     return new DemoProvider();
   }
   if (resolved) {
-    return new TrueLayerProvider(resolved);
+    return new TrueLayerProvider({
+      ...resolved,
+      logger: options?.logger ?? resolved.logger,
+    });
   }
   return new DemoProvider();
 }

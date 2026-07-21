@@ -10,12 +10,19 @@ import type {
   TokenSet,
 } from "../bankingProvider.js";
 
+export interface TrueLayerLogger {
+  info: (message: string) => void;
+  warn?: (message: string) => void;
+}
+
 export interface TrueLayerConfig {
   clientId: string;
   clientSecret: string;
   authBaseUrl?: string;
   apiBaseUrl?: string;
   useSandbox?: boolean;
+  /** Optional sink for non-sensitive operational messages (e.g. page counts). */
+  logger?: TrueLayerLogger;
 }
 
 interface TokenResponse {
@@ -26,6 +33,14 @@ interface TokenResponse {
   token_type?: string;
 }
 
+interface DataApiPage {
+  results: unknown[];
+  /** Opaque cursor for the next request (`?cursor=`), when present. */
+  nextCursor?: string;
+  /** Absolute or API-relative URL for the next page, when present. */
+  nextPath?: string;
+}
+
 /**
  * TrueLayer's default Open Banking consent lasts 90 days. TrueLayer does not
  * return an explicit expiry in the token response, so we record this estimate
@@ -34,14 +49,27 @@ interface TokenResponse {
 const CONSENT_WINDOW_DAYS = 90;
 
 /**
+ * Guard against runaway pagination. Data API v1 typically returns a single
+ * page today; when pagination metadata appears we follow it up to this limit.
+ */
+export const MAX_TRANSACTION_PAGES = 100;
+
+/**
  * Live TrueLayer provider (spec §15). Uses the global fetch API (Node 20+),
  * so it adds no HTTP dependency. Network calls are only made when live
  * credentials are configured; the demo provider is used otherwise.
+ *
+ * Transaction endpoints: official Data API v1 docs show a single
+ * `{ results: [...] }` payload with no cursor. We still follow
+ * `pagination.next_cursor` / top-level `next_cursor` / `Link: rel="next"`
+ * when present so large windows cannot silently truncate if TrueLayer (or a
+ * provider adapter) starts paginating.
  */
 export class TrueLayerProvider implements BankingProvider {
   readonly name = "truelayer";
   private readonly authBase: string;
   private readonly apiBase: string;
+  private readonly logger?: TrueLayerLogger;
 
   constructor(private readonly config: TrueLayerConfig) {
     const sandbox = config.useSandbox ?? false;
@@ -55,6 +83,7 @@ export class TrueLayerProvider implements BankingProvider {
       (sandbox
         ? "https://api.truelayer-sandbox.com"
         : "https://api.truelayer.com");
+    this.logger = config.logger;
   }
 
   async createAuthUrl(input: CreateAuthUrlInput): Promise<string> {
@@ -140,14 +169,16 @@ export class TrueLayerProvider implements BankingProvider {
     const query = params.toString();
     // Accounts and cards use different transaction paths; try the account path
     // first and fall back to the card path when the id is not a bank account.
-    let results = await this.getData(
+    let results = await this.getAllDataPages(
       `/data/v1/accounts/${input.providerAccountId}/transactions?${query}`,
       input.tokens.accessToken,
+      "account",
     );
     if (results.length === 0) {
-      results = await this.getData(
+      results = await this.getAllDataPages(
         `/data/v1/cards/${input.providerAccountId}/transactions?${query}`,
         input.tokens.accessToken,
+        "card",
       );
     }
 
@@ -199,14 +230,75 @@ export class TrueLayerProvider implements BankingProvider {
     };
   }
 
+  /** Single-page fetch used for accounts/cards/balances. */
   private async getData(
     path: string,
     accessToken: string,
   ): Promise<unknown[]> {
+    const page = await this.fetchDataPage(path, accessToken);
+    return page.results;
+  }
+
+  /**
+   * Follows every result page for a transactions (or similar) endpoint until
+   * there is no next cursor/URL, a repeated cursor is detected, or
+   * {@link MAX_TRANSACTION_PAGES} is hit.
+   */
+  private async getAllDataPages(
+    initialPath: string,
+    accessToken: string,
+    kind: "account" | "card",
+  ): Promise<unknown[]> {
+    const collected: unknown[] = [];
+    const seenCursors = new Set<string>();
+    let path: string | undefined = initialPath;
+    let pages = 0;
+
+    while (path) {
+      pages += 1;
+      if (pages > MAX_TRANSACTION_PAGES) {
+        throw new Error(
+          `TrueLayer ${kind} transactions pagination exceeded ${MAX_TRANSACTION_PAGES} pages; aborting to avoid an infinite loop.`,
+        );
+      }
+
+      const page = await this.fetchDataPage(path, accessToken);
+      collected.push(...page.results);
+
+      const nextKey = page.nextCursor ?? page.nextPath;
+      if (!nextKey) {
+        path = undefined;
+        break;
+      }
+      if (seenCursors.has(nextKey)) {
+        throw new Error(
+          `TrueLayer ${kind} transactions pagination returned a repeated cursor; aborting to avoid an infinite loop.`,
+        );
+      }
+      seenCursors.add(nextKey);
+
+      path = page.nextPath
+        ? page.nextPath
+        : this.withCursor(initialPath, page.nextCursor!);
+    }
+
+    if (pages > 1) {
+      this.logger?.info(
+        `TrueLayer ${kind} transactions fetch used ${pages} pages (${collected.length} results, no raw payloads logged).`,
+      );
+    }
+
+    return collected;
+  }
+
+  private async fetchDataPage(
+    path: string,
+    accessToken: string,
+  ): Promise<DataApiPage> {
     const response = await fetch(`${this.apiBase}${path}`, {
       headers: { authorization: `Bearer ${accessToken}` },
     });
-    if (response.status === 404) return [];
+    if (response.status === 404) return { results: [] };
     if (response.status === 401 || response.status === 403) {
       throw new AuthorizationError(
         `TrueLayer request to ${path} was unauthorized (status ${response.status}).`,
@@ -217,8 +309,8 @@ export class TrueLayerProvider implements BankingProvider {
         `TrueLayer data request to ${path} failed with status ${response.status}`,
       );
     }
-    const payload = (await response.json()) as { results?: unknown[] };
-    return payload.results ?? [];
+    const payload = (await response.json()) as Record<string, unknown>;
+    return parseDataApiPage(payload, response.headers.get("link"), this.apiBase);
   }
 
   /** Best-effort account balance in minor units; undefined when unavailable. */
@@ -237,6 +329,15 @@ export class TrueLayerProvider implements BankingProvider {
       return undefined;
     }
   }
+
+  private withCursor(path: string, cursor: string): string {
+    const qIndex = path.indexOf("?");
+    const pathname = qIndex >= 0 ? path.slice(0, qIndex) : path;
+    const query = qIndex >= 0 ? path.slice(qIndex + 1) : "";
+    const params = new URLSearchParams(query);
+    params.set("cursor", cursor);
+    return `${pathname}?${params.toString()}`;
+  }
 }
 
 /**
@@ -248,4 +349,64 @@ export class AuthorizationError extends Error {
     super(message);
     this.name = "AuthorizationError";
   }
+}
+
+/** Exported for unit tests covering pagination metadata parsing. */
+export function parseDataApiPage(
+  payload: Record<string, unknown>,
+  linkHeader: string | null | undefined,
+  apiBase: string,
+): DataApiPage {
+  const results = Array.isArray(payload.results) ? payload.results : [];
+
+  const pagination =
+    payload.pagination && typeof payload.pagination === "object"
+      ? (payload.pagination as Record<string, unknown>)
+      : undefined;
+  const nestedCursor =
+    typeof pagination?.next_cursor === "string" && pagination.next_cursor
+      ? pagination.next_cursor
+      : undefined;
+  const topCursor =
+    typeof payload.next_cursor === "string" && payload.next_cursor
+      ? payload.next_cursor
+      : undefined;
+  const nextCursor = nestedCursor ?? topCursor;
+
+  const nextUrl =
+    (typeof payload.next === "string" && payload.next
+      ? payload.next
+      : undefined) ?? parseLinkNext(linkHeader);
+
+  return {
+    results,
+    nextCursor,
+    nextPath: nextUrl ? toApiPath(nextUrl, apiBase) : undefined,
+  };
+}
+
+function parseLinkNext(linkHeader: string | null | undefined): string | undefined {
+  if (!linkHeader) return undefined;
+  // e.g. <https://api.truelayer.com/data/v1/...?cursor=abc>; rel="next"
+  for (const part of linkHeader.split(",")) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="?next"?/i);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
+function toApiPath(urlOrPath: string, apiBase: string): string {
+  if (urlOrPath.startsWith("/")) return urlOrPath;
+  try {
+    const parsed = new URL(urlOrPath);
+    const base = new URL(apiBase);
+    if (parsed.origin === base.origin) {
+      return `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    // Fall through and treat as opaque path.
+  }
+  return urlOrPath.startsWith("http")
+    ? urlOrPath.replace(apiBase.replace(/\/$/, ""), "")
+    : urlOrPath;
 }
