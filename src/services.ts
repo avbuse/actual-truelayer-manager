@@ -97,7 +97,12 @@ export function buildServices(config: AppConfig): Services {
         );
       }
     }
-    cachedProvider = createProvider(config, resolved);
+    cachedProvider = createProvider(config, resolved, {
+      logger: {
+        info: (m) => logs.info(m),
+        warn: (m) => logs.warn(m),
+      },
+    });
     return cachedProvider;
   };
   const invalidateProvider = (): void => {
