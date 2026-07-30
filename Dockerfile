@@ -23,6 +23,11 @@ RUN mkdir -p /app/data
 COPY package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+# Drop root. The `node` user (uid/gid 1000) ships with the base image; /app/data
+# must be owned by it so the SQLite database and generated encryption key remain
+# writable.
+RUN chown -R node:node /app
+USER node
 EXPOSE 3020
 # Node-based healthcheck avoids depending on wget/curl being installed.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD \
